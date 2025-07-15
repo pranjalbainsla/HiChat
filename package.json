@@ -1,0 +1,11 @@
+{
+  "name": "hichat",
+  "scripts": {
+    "client": "cd client && npm run dev",
+    "server": "cd server && nodemon server.js",
+    "dev": "concurrently \"npm run server\" \"npm run client\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  }
+}
