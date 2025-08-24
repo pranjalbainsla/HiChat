@@ -3,7 +3,7 @@ const router = express.Router()
 const User = require('../models/user.js')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
-
+const passport = require('passport')
 
 router.post('/signup', async (req, res)=>{
     try {
@@ -48,5 +48,15 @@ router.post('/login', async (req, res)=>{
     }
     
 })
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account' }));
+
+router.get('/google/callback', 
+  passport.authenticate('google', { session: false }),
+  (req, res) => {
+    console.log('✅ Google callback hit:', req.user);
+    const token = jwt.sign({ id: req.user._id, name: req.user.name}, process.env.JWT_SECRET, { expiresIn: '30m' });
+    res.redirect(`http://localhost:5173/auth/google/redirect?token=${token}`);
+  }
+);
 
 module.exports = router

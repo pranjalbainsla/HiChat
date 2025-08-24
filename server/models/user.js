@@ -1,5 +1,5 @@
 const mongoose = require('mongoose')
-
+//only allowing google auth rn
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
-    password: {
+    googleId: {
         type: String,
         required: true
     }

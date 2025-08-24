@@ -1,22 +1,16 @@
 import { useEffect } from "react"
-import { useState } from "react"
-import { Link, useNavigate } from 'react-router-dom'
+import { storage } from "../utils/storage"
 
 function Login(){
-    const [email, setEmail] = useState("")
-    const [password, setPassword] = useState("")
-    const navigate = useNavigate()
-
     useEffect(()=>{
-        localStorage.removeItem('token')
+        storage.removeItem('token')
         console.log("token discarded")
     }, [])
-    async function handleLogin(){
-        const res = await fetch('http://localhost:3000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-        })
+
+    function handleLogin(){
+        window.location.href = "http://localhost:3000/api/auth/google";
+        /*
+        const res = await fetch('http://localhost:3000/api/auth/google')
         const data = await res.json()
         if(data.message) alert(data.message)
         if(data.token){
@@ -26,16 +20,17 @@ function Login(){
             setPassword("")
             navigate('/chat')
         }
-        
+        */
     }
     return(
-        <div>
-            <h2>login page</h2>
-            <input type='text' placeholder='email' name='email' value={email} onChange={(e)=>setEmail(e.target.value)} autoComplete="email" />
-            <input type='password' placeholder='password' name='password' value={password} onChange={(e)=>setPassword(e.target.value)} autoComplete='current-password' />
-            <button type='button' onClick={handleLogin}>Login</button>
-
-            <Link to='/signup'>Go to Sign-up</Link>
+        <div className="login-bg">
+            <div className="glass-box">
+                <h2>Welcome!</h2>
+                <button type='button' className='google-button' onClick={handleLogin}>
+                    <img src='/images/google.png' className="google-icon" />
+                    Sign in with Google
+                </button>
+            </div>    
         </div>
     );
 }
