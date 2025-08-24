@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import PrivateRoute from './routes/PrivateRoute'
 import Chat from './pages/Chat'
+import GoogleRedirectHandler from './pages/GoogleRedirectHandler'
 
 function App() {
   
@@ -18,6 +19,7 @@ function App() {
             <Chat />
           </PrivateRoute>
         } />
+        <Route path='/auth/google/redirect' element={<GoogleRedirectHandler />}/>
       </Routes>
     </BrowserRouter>
   )

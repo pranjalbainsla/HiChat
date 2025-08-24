@@ -54,7 +54,7 @@ router.get('/rooms', verifyToken, async (req, res)=>{
     const userId = req.user.id;
 
     try{
-        const rooms = await Room.find({ members : userId }).populate('members', 'name _id').lean();
+        const rooms = await Room.find({ 'members.userId' : userId }).populate('members.userId', 'name _id').lean();
         const roomIds = rooms.map((room)=>room._id); //array of roomids
 
         const lastMessages = await Message.aggregate([
@@ -69,10 +69,13 @@ router.get('/rooms', verifyToken, async (req, res)=>{
         lastMessages.forEach((m)=>messageMap.set(m._id.toString(), m.lastMessage)); /// room id (string) <-> last message as document
 
         const result = rooms.filter((room) => room.members.length === 2).map((room)=>{
-            console.log("Room members:", room.members);
-            const otherUser = room.members.find(p => p._id.toString() !== userId.toString());
+            //console.log("Room members:", room.members);
+            
+            const otherUser = room.members.find(p => p.userId._id.toString() !== userId.toString());
+            const user = room.members.find(p => p.userId._id.toString() === userId.toString());
             return {
                 roomId: room._id,
+                user,
                 otherUser,
                 lastMessage: messageMap.get(room._id.toString()) || null
             }
@@ -93,7 +96,12 @@ router.post('/rooms', verifyToken, async (req, res)=>{
     const { otherUserId } = req.body; // send this from the frontend in headers (update: we sent it in the body)
 
     try{
-        const newRoom = new Room({ members: [userId, otherUserId] });
+        const newRoom = new Room({ 
+            members: [
+                {userId},
+                {userId: otherUserId} 
+            ] 
+        });
         await newRoom.save();
         const otherUser = await User.findById(otherUserId).select('name _id').lean();
 

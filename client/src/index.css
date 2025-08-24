@@ -82,6 +82,8 @@ h1 {
   border-radius: 15px;
   margin-left: auto;
   margin-right: auto;
+  transition: transform 0.3s ease; /* for slide animation */
+  cursor: default;
 }
 
 .my-text {
@@ -101,6 +103,45 @@ h1 {
   text-align: left;
   margin-left: 0;
 }
+.message-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.message-container span {
+  font-size: 0.75rem;
+  color: gray;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  white-space: nowrap;
+  position: absolute;
+}
+
+
+/* My text → timestamp to the right */
+.my-text + span {
+  right: -0.00001px;
+}
+
+/* Friend's text → timestamp to the left */
+.friend-text + span {
+  left: -0.5px;
+}
+
+/* Slide effect when active */
+.my-text:hover {
+  transform: translateX(-40px);
+}
+.friend-text:hover {
+  transform: translateX(40px);
+}
+
+.active + span {
+  opacity: 1;
+}
+
 .logout-link {
   display: block;
   margin-top: 40px;
@@ -149,7 +190,7 @@ h1 {
 }
 .current-chat {
   list-style: none;
-  background-color: #f2a46c;
+  background-color: #676667;
   color: #f8f7f7;
   border-radius: 20px;
   height: 60px;
@@ -159,6 +200,10 @@ h1 {
 }
 .friend-name {
   font-weight: 800;
+  display: flex;
+  justify-content: space-between;
+  padding-right: 10px;
+
 }
 
 .send-message{
@@ -176,4 +221,125 @@ h1 {
   color: black;
   border: none;
   cursor: pointer;
+}
+.login-bg{
+  height: 100vh;
+  width: 100vw;
+  background: url('/images/loginbg.jpeg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-left: -110px;
+  margin-top: -30px;
+}
+.glass-box {
+  height: 30vh;
+  width: 30vw;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 40px 60px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: -20px;
+}
+
+/* Google button */
+.google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  margin-top: 20px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: bold;
+  background-color: #ffffff;
+  color: #333;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.google-button:hover {
+  transform: scale(1.01);
+  background-color: #f0f0f0;
+}
+.google-icon {
+  width: 20px;
+  height: 20px;
+}
+.date-divider {
+  text-align: center;
+  margin: 1rem 0;
+  color: gray;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.date-divider hr {
+  flex: 1;
+  border: none;
+  border-top: 0.5px solid gray;
+}
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  background-color: #555;
+  border-radius: 50%;
+  display: inline-block;
+  animation: bounce 1s infinite ease-in-out;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes bounce {
+  0%, 60%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.unread-count {
+  background: rgb(60, 166, 60);
+  width: 20px;
+  height: 20px;
+  color: #1a1a1a;
+  border-radius: 10px;
+  margin-right: 3px;
+  text-align: center;
+  font-weight: 400;
+  font-size: 14px;
 }

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useState, useRef} from "react";
 import { Link, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
+import { storage } from "../utils/storage";
 
 function Chat(){
     const [message, setMessage] = useState(""); 
@@ -16,10 +17,43 @@ function Chat(){
     const [matching, setMatchingUsers] = useState([]);
     const [display, setDisplay] = useState(0); /// 0 for chat list and 1 for search list
     const messagesEndRef = useRef(null);
+    const [senderTyping, setSenderTyping] = useState(false);
+    const roomRef = useRef(null);
+    const typingTimeoutRef = useRef(null);
+    const [activeMessageId, setActiveMessageId] = useState(null);
+    const [lastBySender, setLastBySender] = useState(false);
 
     useEffect(()=>{
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
+
+        if (messages.length > 0 && messages[messages.length - 1].sender === user._id) {
+            setLastBySender(true);
+        } else {
+            setLastBySender(false);
+        }
+        if(!messages || messages.length === 0) return;
+        socketRef.current?.emit("message_seen", {
+            room,
+            userId: user._id,
+            lastSeenMessageId: messages[messages.length - 1]._id
+        });
+    }, [messages, senderTyping]);
+
+    useEffect(()=>{
+        const socket = socketRef.current;
+
+        let typingEmitTimeout;
+
+        if(message !== ""){
+            clearTimeout(typingEmitTimeout);
+            socket.emit("user-typing", roomRef.current);
+
+            typingEmitTimeout = setTimeout(()=>{}, 300);
+        }
+        return ()=>{
+            clearTimeout(typingEmitTimeout);
+        }
+    }, [message]);
 
     useEffect(()=>{
         if(query.trim()===""){
@@ -40,7 +74,7 @@ function Chat(){
             setMatchingUsers([]);
             return;
         }
-        const token = localStorage.getItem('token');
+        const token = storage.getItem('token');
 
         fetch(`http://localhost:3000/api/chat/users?search=${debouncedQuery}`, {
             headers: {'Authorization': `Bearer ${token}`}
@@ -54,14 +88,21 @@ function Chat(){
 
 
     useEffect(()=>{
-        console.log("comp mounted")
-        const token = localStorage.getItem('token')
+        const token = storage.getItem('token')
         //connect socket as chat page loads
         const socket = io("http://localhost:3000", {
             transports: ["websocket"],
             auth: {
                 token: token
             }
+        });
+        socket.on("connect", () => {
+            console.log("✅ Connected to socket:", socket.id);
+            
+        });
+
+        socket.on("disconnect", () => {
+            console.log("❌ Disconnected from socket");
         });
         //this socket contains the user because we sent the token with the handshake, and you can access it by socket.user
         socketRef.current = socket;
@@ -72,36 +113,62 @@ function Chat(){
 
         //fetch the previous messages, instead of doing this we'll be fetching rooms, make a get rooms endpoint in chat.js
         fetchAllUsers(token);
+        // listen for messages (you can try shifting it to the second useEffect)
+        socket.on("receive_message", (data) => {
+            console.log("📩 Got from backend:", data);
+            console.log("📍 Current room:", roomRef.current);
+            fetchAllUsers(token);
+            if(data.room === roomRef.current){
+                setMessages((prev) => [...prev, data]); //data is the message document as a whole, we need to see if we can just send the message object
+                setSenderTyping(false);
+                clearTimeout(typingTimeoutRef.current);
+            }
+        });
+        socket.on("room_updated", (update) => {
+            setRooms(prevRooms =>
+                prevRooms.map(r =>
+                    r.roomId === update.roomId
+                        ? { ...r, user: {
+                            ...r.user,
+                            unreadCount: update.unreadCount
+                            }, lastMessage: update.lastMessage }
+                        : r
+                )
+            );
+        });
 
         socket.on("connect_error", (err) => {
             console.error("Socket connection error:", err.message);
 
             if (err.message === "Authentication failed" || err.message === "Token expired") {
-                localStorage.removeItem("token");
+                storage.removeItem("token");
                 navigate('/');
             }
         });
+        socket.on("auth-error", (err)=>{
+            console.log(err.message);
+            storage.removeItem('token');
+            navigate('/');
+        })
         
-        /// socket.emit("join_room", room);
-
-        // listen for messages (you can try shifting it to the second useEffect)
-        socket.on("receive_message", (data) => {
-            if(data.room === room){
-                setMessages((prev) => [...prev, data]); //data is the message document as a whole, we need to see if we can just send the message object
-            }
-        });
-
         return () => {
-            console.log("comp unmounted");
+            socket.off("room-updated");
             socket.disconnect();
-            console.log("socket disconnected");
         };
     }, []);
     //fetch messages for a particular room when room changes 
     useEffect(()=>{
+        roomRef.current = room;
+        console.log(roomRef.current);
         if(room === null) return;
-        const token = localStorage.getItem('token');
-        fetch(`http://localhost:3000/api/chat/messages/${room}`, {
+        const token = storage.getItem('token');
+        const socket = socketRef.current;
+
+        
+        //tell the server side to join this room when the user clicks on a room
+        socket.emit("join_room", roomRef.current);
+
+        fetch(`http://localhost:3000/api/chat/messages/${roomRef.current}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -109,11 +176,41 @@ function Chat(){
             .then(res => res.json())
             .then(data => setMessages(data));
 
-        const socket = socketRef.current;
-        //tell the server side to join this room when the user clicks on a room
-        socket.emit("join_room", room);
+        
+        const handleTyping = (data) => {
+            console.log("sender is typing", data, roomRef.current);
+            if (data === roomRef.current) {
+                console.log("setting it to true");
+                setSenderTyping(true);
 
+                clearTimeout(typingTimeoutRef.current);
+                typingTimeoutRef.current = setTimeout(() => {
+                    console.log("setting it to false")
+                    setSenderTyping(false);
+                }, 2000);
+            }
+        };
+        socket.on("sender-typing", handleTyping);
+        socket.on("message_seen_update", ({ roomId, userId, lastSeenMessageId }) => {
+            setRooms((prev) =>
+            prev.map((r) =>
+                r.roomId === roomId
+                ? {
+                    ...r,
+                    otherUser: {
+                        ...r.otherUser,
+                        lastReadMessageId: lastSeenMessageId,
+                    },
+                    }
+                : r
+            )
+            );
+        });
 
+        return()=>{
+            socket.off("sender-typing", handleTyping);
+            clearTimeout(typingTimeoutRef.current);
+        };
     }, [room]);
     const fetchAllUsers = (token) => {
         fetch('http://localhost:3000/api/chat/rooms', {
@@ -146,18 +243,18 @@ function Chat(){
             socket.emit("send_message", newMsg);
 
             // update your own view instantly
-            setMessages((prev) => [...prev, newMsg]);
+            //setMessages((prev) => [...prev, newMsg]);
             setMessage("");
         }
     };
     function chatWithUser( otherUserId ){
         if(query !== "") setQuery("");
-        const existing_chat = rooms.find(r => r.otherUser._id === otherUserId);
+        const existing_chat = rooms.find(r => r.otherUser.userId._id === otherUserId);
         if(existing_chat){
             setRoom(existing_chat.roomId); //change this
         }
         else{
-            const token = localStorage.getItem('token');
+            const token = storage.getItem('token');
             fetch(`http://localhost:3000/api/chat/rooms`, {
                 method: 'POST',
                 headers: {
@@ -189,6 +286,7 @@ function Chat(){
         setDisplay(0);
         console.log("display set to chat list")
     }
+
     /*
     const[user, setUser] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -262,7 +360,11 @@ function Chat(){
         <div>
             { user ? <h2>hellow {user.name}!</h2> : <h2>...loading</h2> }
             <div className="chat">
-                <div className="chat-list">
+                <div className="chat-list" onClick={(e)=>{
+                    if(e.target === e.currentTarget){
+                        setRoom(null);
+                    }
+                }}>
                     <input
                         className="search-bar"
                         type="text"
@@ -275,9 +377,32 @@ function Chat(){
                         { display === 1 ? matching.map((item)=>{
                             return <li key={item._id} className="search-items" onClick={()=>chatWithUser(item._id)} >{item.name}</li>
                         }) : rooms.map((item)=>{
-                            return <li key={item.roomId} className={item.roomId === room? 'current-chat' : 'normal-chat'} onClick={()=>chatWithUser(item.otherUser._id)}>
-                                    <div className="friend-name">{item.otherUser.name}</div>
-                                    <div style={{ fontSize: '14px', whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.lastMessage?.text}</div>
+                            const time = () => {
+                                const date = new Date(item.lastMessage.createdAt);
+                                const now = new Date();
+
+                                const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+                                if(date >= startOfToday){
+                                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+                                }else{
+                                    const day = String(date.getDate()).padStart(2, '0');
+                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                    const year = String(date.getFullYear()).slice(-2);
+                                    return `${day}/${month}/${year}`;
+                                }
+                                
+                            };
+
+                            return <li key={item.roomId} className={item.roomId === room? 'current-chat' : 'normal-chat'} onClick={()=>chatWithUser(item.otherUser.userId._id)}>
+                                    <div className="friend-name">
+                                        <span>{item.otherUser.userId.name}</span>
+                                        {item.user.unreadCount !== 0 ? (<span className="unread-count">{item.user.unreadCount}</span>) : (<span></span>)}
+                                    </div>
+                                    <div style={{ fontSize: '14px', whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display:"flex", justifyContent: "space-between", paddingRight: "10px" }}>
+                                        <span>{item.lastMessage?.text}</span>
+                                        <span style={{ color: item.user.unreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
+                                    </div>
                                 </li>
                         })}
                     </ul>
@@ -290,21 +415,79 @@ function Chat(){
                             {/* scrollable area */}
                             <div className="chat-messages">
                                 <ul className="chats">
-                                    {messages.map((item)=>{
+                                    {messages.map((item, index)=>{
                                         const isMe = (typeof item.sender === "object" ? item.sender._id : item.sender) === user._id;
+                                        const time = () => {
+                                            const date = new Date(item.createdAt);
+                                            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                                        };
+                                        const currentDate = new Date(item.createdAt).toLocaleDateString("en-GB", {
+                                            day: "numeric",
+                                            month: "short",
+                                        });
+                                        let showDivider = false;
+
+                                        if(index===0){
+                                            showDivider = true;
+                                        }else {
+                                            const prevDate = new Date(messages[index-1].createdAt).toLocaleDateString('en-GB', {
+                                                day: "numeric",
+                                                month: "short",
+                                            });
+                                            showDivider = currentDate !== prevDate;
+                                        }
                                             return (
-                                            <li
-                                                key={item._id}
-                                                className={`chat-bubble ${isMe ? "my-text" : "friend-text"}`}
-                                                
-                                            >
-                                                {item.text}
-                                            </li>
-                                            
+                                                <div key={index}>
+                                                    {showDivider && (
+                                                        <div className="date-divider">
+                                                            <hr />
+                                                            <span>{currentDate}</span>
+                                                            <hr />
+                                                        </div>
+                                                    )}
+                                                    <div className="message-container">
+                                                        <li
+                                                            key={index}
+                                                            className={`chat-bubble ${isMe ? "my-text" : "friend-text"} ${activeMessageId === item._id ? 'active' : 'not-active'}`}
+                                                            onMouseOver={()=>{
+                                                                setActiveMessageId(item._id)
+                                                            }}
+                                                            onMouseLeave={()=>setActiveMessageId(null)}
+                                                        >
+                                                            {item.text}
+                                                        </li>
+                                                        <span>{time()}</span>
+                                                    </div>
+
+                                                </div>
                                             );
                                     })}
                                     <div ref={messagesEndRef} />
                                 </ul>
+                                {lastBySender && (
+                                    <div>
+                                        
+                                        {(()=>{
+                                            const currentRoomDoc = rooms.find(r => r.roomId === room);
+                                            if(!currentRoomDoc){
+                                                console.log("no current room doc");
+                                                return null;
+                                            }
+                                            if(currentRoomDoc.otherUser.lastReadMessageId?.toString() >= messages[messages.length -1]._id.toString()){
+                                                console.log("seen")
+                                                return "Seen";
+                                            }
+                                            else return "delivered"
+                                        })()}
+                                    </div>
+                                )}
+                                {senderTyping && (
+                                    <div className="typing-indicator">
+                                        <span></span>
+                                        <span></span>
+                                        <span></span>
+                                    </div>
+                                )}
                             </div>
                             <div className="input-field">
                                 <form style={{ display: 'flex', gap: '8px', paddingTop: '8px'}} onSubmit={handleSubmit}>
