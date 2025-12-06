@@ -3,6 +3,7 @@ import { useState, useRef} from "react";
 import { Link, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import { storage } from "../utils/storage";
+import { api } from '../api';
 
 function Chat(){
     const [message, setMessage] = useState(""); 
@@ -21,7 +22,7 @@ function Chat(){
     const roomRef = useRef(null);
     const typingTimeoutRef = useRef(null);
     const [activeMessageId, setActiveMessageId] = useState(null);
-    const [lastBySender, setLastBySender] = useState(false);
+    const [lastBySender, setLastBySender] = useState(true);
 
     useEffect(()=>{
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,21 +77,16 @@ function Chat(){
         }
         const token = storage.getItem('token');
 
-        fetch(`http://localhost:3000/api/chat/users?search=${debouncedQuery}`, {
+        api(`/api/chat/users?search=${debouncedQuery}`, {
             headers: {'Authorization': `Bearer ${token}`}
-        })
-            .then(res => {
-                if(!res.ok) throw new Error("invalid response")
-                return res.json()
-            })
-            .then(data => setMatchingUsers(data));
+        }).then(data => setMatchingUsers(data));
     }, [debouncedQuery]);
 
 
     useEffect(()=>{
         const token = storage.getItem('token')
         //connect socket as chat page loads
-        const socket = io("http://localhost:3000", {
+        const socket = io(import.meta.env.VITE_API_URL, {
             transports: ["websocket"],
             auth: {
                 token: token
@@ -140,10 +136,13 @@ function Chat(){
         socket.on("connect_error", (err) => {
             console.error("Socket connection error:", err.message);
 
-            if (err.message === "Authentication failed" || err.message === "Token expired") {
+            /*if (err.message === "Authentication failed" || err.message === "Token expired") {
                 storage.removeItem("token");
                 navigate('/');
             }
+            */
+           storage.removeItem("token");
+           navigate('/');
         });
         socket.on("auth-error", (err)=>{
             console.log(err.message);
@@ -168,13 +167,11 @@ function Chat(){
         //tell the server side to join this room when the user clicks on a room
         socket.emit("join_room", roomRef.current);
 
-        fetch(`http://localhost:3000/api/chat/messages/${roomRef.current}`, {
+        api(`/api/chat/messages/${roomRef.current}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
-        })
-            .then(res => res.json())
-            .then(data => setMessages(data));
+        }).then(data => setMessages(data));
 
         
         const handleTyping = (data) => {
@@ -213,13 +210,11 @@ function Chat(){
         };
     }, [room]);
     const fetchAllUsers = (token) => {
-        fetch('http://localhost:3000/api/chat/rooms', {
+        api('/api/chat/rooms', {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
-        })
-            .then(res => res.json())
-            .then(data => setRooms(data))
+        })  .then(data => setRooms(data))
             .catch(err=>{
                 console.error("cant fetch rooms: ", err.message);
             });
@@ -255,7 +250,7 @@ function Chat(){
         }
         else{
             const token = storage.getItem('token');
-            fetch(`http://localhost:3000/api/chat/rooms`, {
+            api(`/api/chat/rooms`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -263,7 +258,6 @@ function Chat(){
                 },
                 body: JSON.stringify({ otherUserId })
             })
-                .then(res => res.json())
                 .then(data => {
                     const { roomId, otherUser, lastMessage } = data; //we're getting all these from the backend
 
@@ -287,75 +281,6 @@ function Chat(){
         console.log("display set to chat list")
     }
 
-    /*
-    const[user, setUser] = useState(null)
-    const [loading, setLoading] = useState(true)
-    const navigate = useNavigate()
-    const [message, setMessage] = useState("")
-    const [messages, setMessages] = useState([])
-    const room = 'general';
-
-    async function fetchMessages(){
-        const res = await fetch(`http://localhost:3000/api/chat/messages/${room}`, {
-            method: 'GET',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        })
-        const data = await res.json();
-        if(data.message) alert(data.message);
-        setMessages(data.messages)
-    }
-
-    useEffect(()=>{
-        //everytime chat page loads, fetch the user
-        async function fetchUser(){
-            const res = await fetch('http://localhost:3000/api/chat', {
-                headers: {'Authorization': `Bearer ${localStorage.getItem('token')}`}
-            })
-            const data = await res.json()
-            setUser(data.user)
-            setLoading(false)
-        }
-
-        fetchUser();
-        fetchMessages();
-    },[])
-    //login page when no user
-    useEffect(()=>{
-        if(!loading && !user){
-            navigate('/')
-        }
-    }, [user, loading])
-    //load messages when the room changes (for the time being, it's gonna be the same for everybody: general)
-    useEffect(()=>{
-        fetchMessages();
-    }, [room])
-    //save a new message
-    async function handleSubmit(){
-        if(message!==""){
-            //setMessages(prev=>[...prev, message])
-            //setMessage("")
-            const res = await fetch('http://localhost:3000/api/chat/sendmessage', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    room: "general",
-                    text: message
-                })
-            })
-            const data = await res.json()
-            if(data) console.log("response received")
-            if(data.message) alert(data.message);
-            if(data.newMessage) alert(data.newMessage);
-            setMessage("")
-        }
-    }
-*/
     return(
         <div>
             { user ? <h2>hellow {user.name}!</h2> : <h2>...loading</h2> }
@@ -363,6 +288,10 @@ function Chat(){
                 <div className="chat-list" onClick={(e)=>{
                     if(e.target === e.currentTarget){
                         setRoom(null);
+                        //remove from activeRooms
+                        //make the client join null
+                        const socket = socketRef.current;
+                        socket.emit('join_room', null);
                     }
                 }}>
                     <input
@@ -378,6 +307,7 @@ function Chat(){
                             return <li key={item._id} className="search-items" onClick={()=>chatWithUser(item._id)} >{item.name}</li>
                         }) : rooms.map((item)=>{
                             const time = () => {
+                                if(!item.lastMessage || !item.lastMessage.createdAt) return "";
                                 const date = new Date(item.lastMessage.createdAt);
                                 const now = new Date();
 
@@ -400,7 +330,13 @@ function Chat(){
                                         {item.user.unreadCount !== 0 ? (<span className="unread-count">{item.user.unreadCount}</span>) : (<span></span>)}
                                     </div>
                                     <div style={{ fontSize: '14px', whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display:"flex", justifyContent: "space-between", paddingRight: "10px" }}>
-                                        <span>{item.lastMessage?.text}</span>
+                                        <span style={{
+                                            flex: "1",
+                                            overflow: "hidden",
+                                            whiteSpace: "nowrap",
+                                            textOverflow: "ellipsis",
+                                            minWidth: 0   // <-- IMPORTANT: allows shrinking
+                                        }}>{item.lastMessage?.text}</span>
                                         <span style={{ color: item.user.unreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
                                     </div>
                                 </li>
@@ -409,7 +345,7 @@ function Chat(){
                 </div>
                 
                 <div className="chat-list">
-                    {!room ? (<p>no room selected</p>) : (
+                    {room && (
                         <div className="chat-box">
                             <div>{}</div>
                             {/* scrollable area */}
@@ -465,19 +401,21 @@ function Chat(){
                                     <div ref={messagesEndRef} />
                                 </ul>
                                 {lastBySender && (
-                                    <div>
-                                        
+                                    <div style={{ display: 'flex'}}>
                                         {(()=>{
                                             const currentRoomDoc = rooms.find(r => r.roomId === room);
+                                            console.log(lastBySender);
+                                            
                                             if(!currentRoomDoc){
                                                 console.log("no current room doc");
                                                 return null;
                                             }
+                                            console.log("current room is" + currentRoomDoc.roomId);
                                             if(currentRoomDoc.otherUser.lastReadMessageId?.toString() >= messages[messages.length -1]._id.toString()){
                                                 console.log("seen")
-                                                return "Seen";
+                                                return <span style={{fontSize: '12px', color: 'gray', fontStyle: 'italic', marginLeft: 'auto' }}>Seen</span>;
                                             }
-                                            else return "delivered"
+                                            else return <span style={{ fontSize: '12px', color: 'gray', fontStyle: 'italic', marginLeft: 'auto'}}>delivered</span>;
                                         })()}
                                     </div>
                                 )}

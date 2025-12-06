@@ -48,14 +48,22 @@ router.post('/login', async (req, res)=>{
     }
     
 })
+//passport.authenticate('google') sends the user to google's login page
+//scope is what info we need from google
+
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account' }));
 
+// Google sends the user back to this callback URL after login.
+// Passport processes Google's response and attaches the user to req.user.
+// session:false → we are using JWT, not passport sessions.
 router.get('/google/callback', 
   passport.authenticate('google', { session: false }),
   (req, res) => {
     console.log('✅ Google callback hit:', req.user);
+    //signing a token, expiry time is 30 mins
     const token = jwt.sign({ id: req.user._id, name: req.user.name}, process.env.JWT_SECRET, { expiresIn: '30m' });
-    res.redirect(`http://localhost:5173/auth/google/redirect?token=${token}`);
+    //redirects back to the frontend with token so react can save it
+    res.redirect(`${process.env.CLIENT_URL}/auth/google/redirect?token=${token}`);
   }
 );
 
