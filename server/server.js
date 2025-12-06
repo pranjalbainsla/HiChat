@@ -1,8 +1,15 @@
 const express = require('express')
 const mongoose = require('mongoose')
+//cors is cross origin resource sharing, here you can decide whivh domains are allowed to call your api endpoints, so like maybe only your frontend domain
 const cors = require('cors')
 require('dotenv').config()
 const http = require('http')
+/*A **module** is a single file or small unit of code you import (built-in or custom).
+A **library** is a collection of many modules packaged together to provide bigger features.
+Example: `http` is a module; Express is a library made of many modules.
+so here you're just loading that module http
+*/
+
 const { Server } = require('socket.io')
 const Message = require('./models/message.js')
 const Room = require('./models/room.js')
@@ -51,7 +58,7 @@ const activeRooms = new Map();
 io.on('connection', (socket)=>{
     console.log("New client:" , socket.user.name);
     socket.join(socket.user._id.toString());
-    console.log(`${socket.user.name} has joined room: ${socket.user._id.toString()}`)
+    console.log(`${socket.user.name} has joined room, userId: ${socket.user._id.toString()}`)
 
     //sending user info to the frontend as soon as we connect (this is the entire user object)
     socket.emit('sendUser', socket.user);
@@ -174,15 +181,22 @@ io.on('connection', (socket)=>{
 
 
 //Connecting to databaseur
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI) //
 const db = mongoose.connection 
 db.on('error', (err)=>console.error(err))
-db.once('open', ()=>console.log("Connected to MongoDB Atlas"))
+db.once('open', ()=>console.log("Connected to MongoDB Atlas")) //rn its local db only
 
 const passport = require('passport');
 app.use(passport.initialize());
 
-//Routers
+/*Routers
+Separation of Concerns (SoC):
+A design principle where a system is split into **distinct sections**, each responsible for one clear task, so changes in one part don’t break others.
+
+A router in Express is a mini-module that groups related endpoints together (e.g., all `/auth` routes).
+It’s basically a small “sub-server” that handles specific paths and is plugged into the main server.
+
+*/
 const authRouter = require('./routes/auth.js')
 app.use('/api/auth', authRouter)
 

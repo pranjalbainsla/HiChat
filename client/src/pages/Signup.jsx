@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from 'react-router-dom'
+import { api } from "../api"
 
 function Signup(){
     const [name, setName] = useState("")
@@ -8,12 +9,12 @@ function Signup(){
     const navigate = useNavigate()
     
     async function handleSignup(){
-        const res = await fetch('http://localhost:3000/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password })
+        const data = await api('/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password })
         })
-        const data = await res.json()
+        
         alert(data.message)
         if(data.message === 'User created'){
             navigate('/')

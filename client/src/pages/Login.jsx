@@ -8,19 +8,8 @@ function Login(){
     }, [])
 
     function handleLogin(){
-        window.location.href = "http://localhost:3000/api/auth/google";
-        /*
-        const res = await fetch('http://localhost:3000/api/auth/google')
-        const data = await res.json()
-        if(data.message) alert(data.message)
-        if(data.token){
-            localStorage.setItem('token', data.token)
-            console.log("token: ", data.token )
-            setEmail("")
-            setPassword("")
-            navigate('/chat')
-        }
-        */
+
+        window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/google`;
     }
     return(
         <div className="login-bg">
