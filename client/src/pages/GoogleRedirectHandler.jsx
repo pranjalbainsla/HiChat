@@ -8,7 +8,7 @@ function GoogleRedirectHandler(){
 
     useEffect(()=>{
         const token = new URLSearchParams(window.location.search).get('token');
-
+        console.log("token is-> " + token);
         if (token) {
         try {
             /* Optionally verify basic structure of token
