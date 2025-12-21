@@ -222,9 +222,14 @@ h1 {
   border: none;
   cursor: pointer;
 }
-.login-bg{
-  height: 100vh;
-  width: 100vw;
+body {
+  background: url('/images/loginbg.jpeg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+/*.login-bg{
+
   background: url('/images/loginbg.jpeg');
   background-size: cover;
   background-position: center;
@@ -232,9 +237,7 @@ h1 {
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-left: -110px;
-  margin-top: -30px;
-}
+}*/
 .glass-box {
   height: 30vh;
   width: 30vw;

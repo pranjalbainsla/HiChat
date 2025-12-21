@@ -75,7 +75,7 @@ router.get('/rooms', verifyToken, async (req, res)=>{
             const user = room.members.find(p => p.userId._id.toString() === userId.toString());
             return {
                 roomId: room._id,
-                user,
+                user, //user and otherUser are member objects, so they'll have fields like (userId, lastdeliveredmessageId, lastreadmessageId, unreadcount)
                 otherUser,
                 lastMessage: messageMap.get(room._id.toString()) || null
             }
@@ -96,16 +96,44 @@ router.post('/rooms', verifyToken, async (req, res)=>{
     const { otherUserId } = req.body; // send this from the frontend in headers (update: we sent it in the body)
 
     try{
-        const newRoom = new Room({ 
+        const newRoom = new Room({
             members: [
-                {userId},
-                {userId: otherUserId} 
-            ] 
+                { userId },
+                { userId: otherUserId }
+            ]
         });
         await newRoom.save();
-        const otherUser = await User.findById(otherUserId).select('name _id').lean();
 
-        res.status(201).json( { roomId: newRoom._id, otherUser, lastMessage: { text: "", createdAt: "", sender: null}});
+        const [userDoc, otherUserDoc] = await Promise.all([
+            User.findById(userId).select('_id name').lean(),
+            User.findById(otherUserId).select('_id name').lean()
+        ]);
+
+        const user = {
+        userId: userDoc,
+        lastDeliveredMessageId: null,
+        lastReadMessageId: null,
+        unreadCount: 0
+        };
+
+        const otherUser = {
+        userId: otherUserDoc,
+        lastDeliveredMessageId: null,
+        lastReadMessageId: null,
+        unreadCount: 0
+        };
+
+        res.status(201).json({
+        roomId: newRoom._id,
+        user,
+        otherUser,
+        lastMessage: {
+            text: "",
+            createdAt: "",
+            sender: null
+        }
+        });
+
         
     }catch(err){
         console.error(err.message);

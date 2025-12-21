@@ -335,7 +335,7 @@ function Chat(){
                                             overflow: "hidden",
                                             whiteSpace: "nowrap",
                                             textOverflow: "ellipsis",
-                                            minWidth: 0   // <-- IMPORTANT: allows shrinking
+                                            minWidth: 0   // IMPORTANT: allows shrinking
                                         }}>{item.lastMessage?.text}</span>
                                         <span style={{ color: item.user.unreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
                                     </div>

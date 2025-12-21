@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { storage } from "../utils/storage";
 
-function GoogleRedirectHandler(){
+const GoogleRedirectHandler = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
 
