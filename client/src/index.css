@@ -33,7 +33,12 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
-
+.login-bg {
+  background: url('/images/loginbg.jpeg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
 h1 {
   font-size: 3.2em;
   line-height: 1.1;
@@ -150,11 +155,35 @@ h1 {
 .logout-link:hover{
   text-decoration: underline;
 }
+.search-box{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+input:focus {
+  outline: none;
+}
 .search-bar {
   height: 40px;
+  width: 90%;
   border-radius: 20px;
-  margin-bottom: 10px;
+  border: white;
+  color: white;
   padding-left: 10px;
+}
+.search-button {
+  height: 40px;
+  width: 40px;
+  background-color: white;
+  border: none;
+  cursor: pointer;
+  border-radius: 20px;
+  padding: 10px;
+}
+button:hover{
+  background-color: rgb(205, 198, 198);
 }
 .search-list{
   display: flex;
@@ -222,12 +251,7 @@ h1 {
   border: none;
   cursor: pointer;
 }
-body {
-  background: url('/images/loginbg.jpeg');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-}
+
 /*.login-bg{
 
   background: url('/images/loginbg.jpeg');

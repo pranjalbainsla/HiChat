@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import { storage } from "../utils/storage";
 import { api } from '../api';
+import Search from './Search'
 
 function Chat(){
     const [message, setMessage] = useState(""); 
@@ -23,6 +24,7 @@ function Chat(){
     const typingTimeoutRef = useRef(null);
     const [activeMessageId, setActiveMessageId] = useState(null);
     const [lastBySender, setLastBySender] = useState(true);
+   
 
     useEffect(()=>{
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -86,7 +88,7 @@ function Chat(){
     useEffect(()=>{
         const token = storage.getItem('token')
         //connect socket as chat page loads
-        const socket = io(import.meta.env.VITE_API_URL, {
+        const socket = io(import.meta.env.VITE_LOCAL_API_URL, {
             transports: ["websocket"],
             auth: {
                 token: token
@@ -283,7 +285,7 @@ function Chat(){
 
     return(
         <div>
-            { user ? <h2>hellow {user.name}!</h2> : <h2>...loading</h2> }
+            { user ? <h2>hello {user.name}!</h2> : <h2>...loading</h2> }
             <div className="chat">
                 <div className="chat-list" onClick={(e)=>{
                     if(e.target === e.currentTarget){
@@ -294,18 +296,17 @@ function Chat(){
                         socket.emit('join_room', null);
                     }
                 }}>
-                    <input
-                        className="search-bar"
-                        type="text"
-                        placeholder="search..."
-                        value={query}
-                        onChange={(e)=>setQuery(e.target.value)}
-                    />
-    
+                    <Search query={query} setQuery={setQuery} />
                     <ul className={display===1? "search-list" : "friends"}>
-                        { display === 1 ? matching.map((item)=>{
-                            return <li key={item._id} className="search-items" onClick={()=>chatWithUser(item._id)} >{item.name}</li>
-                        }) : rooms.map((item)=>{
+                        { display === 1 ? ( 
+                            matching.length === 0 ? (
+                                <li className="no-users">No matching users found</li>
+                            ) : ( 
+                                matching.map((item)=>(
+                                    <li key={item._id} className="search-items" onClick={()=>chatWithUser(item._id)} >{item.name}</li>
+                            ))
+                        ))
+                             : ( rooms.map((item)=>{
                             const time = () => {
                                 if(!item.lastMessage || !item.lastMessage.createdAt) return "";
                                 const date = new Date(item.lastMessage.createdAt);
@@ -340,7 +341,7 @@ function Chat(){
                                         <span style={{ color: item.user.unreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
                                     </div>
                                 </li>
-                        })}
+}))}
                     </ul>
                 </div>
                 

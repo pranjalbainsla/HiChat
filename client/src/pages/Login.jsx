@@ -3,16 +3,20 @@ import { storage } from "../utils/storage"
 
 function Login(){
     useEffect(()=>{
+
         storage.removeItem('token')
         console.log("token discarded")
+
+        document.body.className = "login-bg";
+      
     }, [])
 
     function handleLogin(){
 
-        window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/google`;
+        window.location.href = `${import.meta.env.VITE_LOCAL_API_URL}/api/auth/google`;
     }
     return(
-        <div className="login-bg">
+        <div className="login">
             <div className="glass-box">
                 <h2>Welcome!</h2>
                 <button type='button' className='google-button' onClick={handleLogin}>

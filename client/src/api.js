@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_LOCAL_API_URL;
 
 
 // helper that makes calling our backend easier, i just have to call api() now instead of 

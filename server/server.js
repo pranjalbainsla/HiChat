@@ -181,7 +181,7 @@ io.on('connection', (socket)=>{
 
 
 //Connecting to databaseur
-mongoose.connect(process.env.MONGO_URI) //
+mongoose.connect(process.env.LOCAL_MONGO_DB) //
 const db = mongoose.connection 
 db.on('error', (err)=>console.error(err))
 db.once('open', ()=>console.log("Connected to MongoDB Atlas")) //rn its local db only
@@ -203,5 +203,5 @@ app.use('/api/auth', authRouter)
 const chatRouter = require('./routes/chat.js')
 app.use('/api/chat', chatRouter)
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 server.listen(PORT, ()=> console.log(`server listening at ${PORT}`));

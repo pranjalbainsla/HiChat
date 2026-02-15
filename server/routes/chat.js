@@ -11,6 +11,7 @@ router.get('/', verifyToken, (req, res)=>{
 //fetch users for the search bar
 router.get('/users', verifyToken, async (req, res)=>{
     const search = req.query.search;
+    console.log("search value =", search);
 
     try{
         const users = await User.find({ _id: { $ne: req.user.id }, name: { $regex: search, $options: 'i' }}).select('name _id');
