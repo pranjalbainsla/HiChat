@@ -88,7 +88,7 @@ function Chat(){
     useEffect(()=>{
         const token = storage.getItem('token')
         //connect socket as chat page loads
-        const socket = io(import.meta.env.VITE_LOCAL_API_URL, {
+        const socket = io(import.meta.env.VITE_API_URL, {
             transports: ["websocket"],
             auth: {
                 token: token
@@ -255,8 +255,8 @@ function Chat(){
             api(`/api/chat/rooms`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": 'application/json'
                 },
                 body: JSON.stringify({ otherUserId })
             })

@@ -11,7 +11,7 @@ function Signup(){
     async function handleSignup(){
         const data = await api('/api/auth/signup', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, email, password })
         })
         
