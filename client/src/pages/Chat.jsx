@@ -8,9 +8,9 @@ import Search from './Search'
 
 function Chat(){
     const [message, setMessage] = useState(""); 
-    const [messages, setMessages] = useState([]); //stores messages as per the message model
-    const [room, setRoom] = useState(null); //stores the roomId, which is basically the _id of room documents
-    const [user, setUser] = useState(null);
+    const [messages, setMessages] = useState([]); //stores message docs
+    const [room, setRoom] = useState(null); //stores the roomId
+    const [user, setUser] = useState(null); //has id and name
     const navigate = useNavigate();
     const socketRef = useRef(null);
     const [rooms, setRooms] = useState([]); /// array of room objects ( each room object has roomId, otherUser, lastMessage)
@@ -24,23 +24,41 @@ function Chat(){
     const typingTimeoutRef = useRef(null);
     const [activeMessageId, setActiveMessageId] = useState(null);
     const [lastBySender, setLastBySender] = useState(true);
+    const userRef = useRef(null);
    
-
+    
+    const getMessageStatus = (message, isMe) => {
+        if (!isMe) return null;
+        
+        if (message.status === 'sending') return 'sending';
+        
+        // Find the recipient user from the current room
+        const currentRoom = rooms.find(r => r.roomId === room);
+        if (!currentRoom) return 'sent';
+        
+        const recipientId = currentRoom.otherUser.id;
+        const readByIds = message.readBy?.map(u => u.id || u._id || u) || [];
+        const deliveredToIds = message.deliveredTo?.map(u => u.id || u._id || u) || [];
+        
+        if (readByIds.some(id => id.toString() === recipientId)) {
+            return 'seen';
+        } else if (deliveredToIds.some(id => id.toString() === recipientId)) {
+            return 'delivered';
+        }
+        return 'sent';
+    };
+   
     useEffect(()=>{
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-        if (messages.length > 0 && messages[messages.length - 1].sender === user._id) {
+        if (messages.length > 0 && messages[messages.length - 1].sender.id === user.id) {
             setLastBySender(true);
         } else {
             setLastBySender(false);
         }
         if(!messages || messages.length === 0) return;
-        socketRef.current?.emit("message_seen", {
-            room,
-            userId: user._id,
-            lastSeenMessageId: messages[messages.length - 1]._id
-        });
-    }, [messages, senderTyping]);
+        
+    }, [messages]);
 
     useEffect(()=>{
         const socket = socketRef.current;
@@ -84,130 +102,205 @@ function Chat(){
         }).then(data => setMatchingUsers(data));
     }, [debouncedQuery]);
 
+useEffect(() => {
+  const token = storage.getItem('token');
 
-    useEffect(()=>{
-        const token = storage.getItem('token')
-        //connect socket as chat page loads
-        const socket = io(import.meta.env.VITE_API_URL, {
-            transports: ["websocket"],
-            auth: {
-                token: token
+  const socket = io(import.meta.env.VITE_API_URL, {
+    transports: ["websocket"],
+    auth: { token }
+  });
+
+  socketRef.current = socket;
+
+  socket.on("connect", () => console.log("Connected:", socket.id));
+  socket.on("disconnect", () => console.log("Disconnected"));
+
+  socket.on("sendUser", (serverUser) => {
+    setUser(serverUser);
+    userRef.current = serverUser; // ✅ keep ref updated
+  });
+
+  socket.on("connect_error", (err) => {
+    storage.removeItem("token");
+    navigate('/');
+  });
+
+  socket.on("auth-error", () => {
+    storage.removeItem("token");
+    navigate('/');
+  });
+
+fetchAllUsers(token);
+const handleReceiveMessage = (msg) => {
+    const user = userRef.current;
+    const currentRoom = roomRef.current;
+    const socket = socketRef.current;
+
+    if (!user) return;
+
+    const isSender = msg.sender._id === user._id;
+    const isCurrentRoom = msg.room === currentRoom;
+
+    // 1. Update messages (only if relevant)
+    setMessages(prev => {
+        const existing = prev.find(m => m.id === msg.tempId);
+
+        // sender case (replace temp)
+        if (existing) {
+        return prev.map(m =>
+            m.id === msg.tempId
+            ? { ...msg, id: msg._id, status: "sent" }
+            : m
+        );
+        }
+
+        // receiver + current room → append
+        if (isCurrentRoom) {
+        return [...prev, { ...msg, id: msg._id }];
+        }
+
+        return prev;
+    });
+
+    // 2. Update rooms (chat list)
+    setRooms(prev => {
+        const exists = prev.find(r => r.roomId === msg.room);
+
+        const updatedRoom = {
+            roomId: msg.room,
+            myUnreadCount: (!isSender && !isCurrentRoom )? exists.myUnreadCount+1 : exists.myUnreadCount,
+            lastMessage: {
+                _id: msg._id,
+                text: msg.text,
+                sender: msg.sender._id,
+                createdAt: msg.createdAt
             }
+        };
+
+        if (exists) {
+            return prev.map(r =>
+                r.roomId === msg.room ? { ...r, ...updatedRoom } : r
+            );
+        } else {
+            return [...prev, updatedRoom];
+        }
+    });
+
+    // 3. Delivery / Read logic
+    if (!isSender) {
+        if (!isCurrentRoom) {
+        socket.emit("delivered", {
+            msgId: msg._id,
+            userId: user.id
         });
-        socket.on("connect", () => {
-            console.log("✅ Connected to socket:", socket.id);
+        } else {
+            //update unreadCount to 0 and (emit to backend also?)
+
+            socket.emit("read", {
+                lastMessageId: msg._id,
+                userId: user.id,
+                roomId: currentRoom
+            });
+        }
+    }
+};
+  socket.on("receive_message", handleReceiveMessage);
+
+  return () => {
+    socket.off("receive_message", handleReceiveMessage);
+    socket.disconnect();
+  };
+}, []);
+    //fetch messages for a particular room when room changes 
+    useEffect(() => {
+        const token = storage.getItem('token');
+    
+        roomRef.current = room;
+        console.log("roomref set to:", roomRef.current);
+        if (!room) return;
+        
+        //should i update unread count to 0 here
+
+        const socket = socketRef.current;
+        if (!socket) return;
+
+        socket.emit("join_room", room);
+
+        api(`/api/chat/messages/${room}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        }).then(data => {
+        
+                setMessages(data);
+                if (!data.length) return;
+                setRooms(prev =>
+                    prev.map(r =>
+                        r.roomId === room
+                        ? { ...r, myUnreadCount: 0 }
+                        : r
+                    )
+                );
+                const lastMessage = data[data.length - 1];
+                //or here
+                if (lastMessage.sender._id !== user.id) {
+                    console.log("read getting triggered from fetch messages")
+                    socket.emit('read', {
+                        userId: user.id,
+                        lastMessageId: lastMessage._id,
+                        roomId: room
+                    });
+                }
             
         });
-
-        socket.on("disconnect", () => {
-            console.log("❌ Disconnected from socket");
-        });
-        //this socket contains the user because we sent the token with the handshake, and you can access it by socket.user
-        socketRef.current = socket;
-
-        socket.on('sendUser', (serveruser)=>{
-            setUser(serveruser);
-        })
-
-        //fetch the previous messages, instead of doing this we'll be fetching rooms, make a get rooms endpoint in chat.js
-        fetchAllUsers(token);
-        // listen for messages (you can try shifting it to the second useEffect)
-        socket.on("receive_message", (data) => {
-            console.log("📩 Got from backend:", data);
-            console.log("📍 Current room:", roomRef.current);
-            fetchAllUsers(token);
-            if(data.room === roomRef.current){
-                setMessages((prev) => [...prev, data]); //data is the message document as a whole, we need to see if we can just send the message object
-                setSenderTyping(false);
-                clearTimeout(typingTimeoutRef.current);
-            }
-        });
-        socket.on("room_updated", (update) => {
-            setRooms(prevRooms =>
-                prevRooms.map(r =>
-                    r.roomId === update.roomId
-                        ? { ...r, user: {
-                            ...r.user,
-                            unreadCount: update.unreadCount
-                            }, lastMessage: update.lastMessage }
-                        : r
-                )
-            );
-        });
-
-        socket.on("connect_error", (err) => {
-            console.error("Socket connection error:", err.message);
-
-            /*if (err.message === "Authentication failed" || err.message === "Token expired") {
-                storage.removeItem("token");
-                navigate('/');
-            }
-            */
-           storage.removeItem("token");
-           navigate('/');
-        });
-        socket.on("auth-error", (err)=>{
-            console.log(err.message);
-            storage.removeItem('token');
-            navigate('/');
-        })
-        
-        return () => {
-            socket.off("room-updated");
-            socket.disconnect();
-        };
-    }, []);
-    //fetch messages for a particular room when room changes 
-    useEffect(()=>{
-        roomRef.current = room;
-        console.log(roomRef.current);
-        if(room === null) return;
-        const token = storage.getItem('token');
-        const socket = socketRef.current;
-
-        
-        //tell the server side to join this room when the user clicks on a room
-        socket.emit("join_room", roomRef.current);
-
-        api(`/api/chat/messages/${roomRef.current}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        }).then(data => setMessages(data));
-
         
         const handleTyping = (data) => {
-            console.log("sender is typing", data, roomRef.current);
             if (data === roomRef.current) {
-                console.log("setting it to true");
-                setSenderTyping(true);
-
-                clearTimeout(typingTimeoutRef.current);
-                typingTimeoutRef.current = setTimeout(() => {
-                    console.log("setting it to false")
-                    setSenderTyping(false);
-                }, 2000);
+            setSenderTyping(true);
+            clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => {
+                setSenderTyping(false);
+            }, 2000);
             }
         };
-        socket.on("sender-typing", handleTyping);
-        socket.on("message_seen_update", ({ roomId, userId, lastSeenMessageId }) => {
-            setRooms((prev) =>
-            prev.map((r) =>
-                r.roomId === roomId
-                ? {
-                    ...r,
-                    otherUser: {
-                        ...r.otherUser,
-                        lastReadMessageId: lastSeenMessageId,
-                    },
-                    }
-                : r
-            )
+        const handleMessageDelivered = ({ msgId, userId }) => {
+            setMessages(prev =>
+                prev.map(msg =>
+                    msg._id === msgId || msg.id === msgId
+                        ? { ...msg, deliveredTo: [...(msg.deliveredTo || []), ...(msg.deliveredTo?.find(u => (u._id || u).toString() === userId.toString()) ? [] : [{ _id: userId }])] }
+                        : msg
+                )
             );
-        });
+        };
+        const handleMessagesRead = ({ lastMessageId, userId, roomId }) => {
+            if (roomId !== room){
+                //update the rooms state, if this room is in the chatlist, update lastMessageId and all, and maybe also just the unread count
+                //
+                setRooms(prev => 
+                    prev.map(room =>
+                        room.roomId === roomId ? {...room, myUnreadCount : count } : room
+                    )
+                )
+            }
+            
+            setMessages(prev =>
+                prev.map(msg =>
+                    (msg.id?.toString() <= lastMessageId?.toString())
+                        ? {
+                            ...msg,
+                            readBy: [...(msg.readBy || []), ...(msg.readBy?.find(u => (u._id || u).toString() === userId.toString()) ? [] : [{ _id: userId }])]
+                        }
+                        : msg
+                )
+            );
+        };
+        
+        socket.on("sender-typing", handleTyping);
+        socket.on("message_delivered", handleMessageDelivered);
+        socket.on("messages_read", handleMessagesRead);
 
-        return()=>{
+        return () => {
             socket.off("sender-typing", handleTyping);
+            socket.off("message_delivered", handleMessageDelivered);
+            socket.off("messages_read", handleMessagesRead);
             clearTimeout(typingTimeoutRef.current);
         };
     }, [room]);
@@ -230,25 +323,31 @@ function Chat(){
             return;
         }
         if (message !== "") {
-            const newMsg = {
-                room, //this is _id of room (stored in the room state)
-                sender: user._id, // we need to send _id of user
+            const tempId = Date.now();
+
+            const tempMessage = {
+                id: tempId,
                 text: message,
+                room: room,
+                sender: {
+                    _id: user.id,
+                    name: user.name
+                },
+                status: "sending",
+                createdAt: Date.now()
             };
 
-            // send to server (and it will broadcast)
-            socket.emit("send_message", newMsg);
+            setMessages((prev) => [...prev, tempMessage]);
 
-            // update your own view instantly
-            //setMessages((prev) => [...prev, newMsg]);
+            socket.emit("send_message", tempMessage);
             setMessage("");
         }
     };
     function chatWithUser( otherUserId ){
         if(query !== "") setQuery("");
-        const existing_chat = rooms.find(r => r.otherUser.userId._id === otherUserId);
+        const existing_chat = rooms.find(r => r.otherUser.id === otherUserId);
         if(existing_chat){
-            setRoom(existing_chat.roomId); //change this
+            setRoom(existing_chat.roomId); //change 
         }
         else{
             const token = storage.getItem('token');
@@ -261,23 +360,20 @@ function Chat(){
                 body: JSON.stringify({ otherUserId })
             })
                 .then(data => {
-                    const { roomId, otherUser, lastMessage } = data; //we're getting all these from the backend
+                    const { roomId, myUnreadCount, otherUser, lastMessage } = data; //we're getting all these from the backend
 
                     setRoom(roomId);  // still update the current room
                     setRooms(prev => [
                         ...prev,
                         {
                             roomId,
+                            myUnreadCount,
                             otherUser,
                             lastMessage
                         }
                     ]);
-                    //update the rooms list manually (because we dont have a rooms dependency useeffect)
-                    fetchAllUsers(token);
                 });
         }
-        /// if yes, set room to existing_chat (im guesing rooms.some returns an object of the rooms array only?)
-        ///if no, make this post request (start a new chat) -> set the room to this newly created room, what exactly does the backend send in this post method?
 
         setDisplay(0);
         console.log("display set to chat list")
@@ -303,7 +399,7 @@ function Chat(){
                                 <li className="no-users">No matching users found</li>
                             ) : ( 
                                 matching.map((item)=>(
-                                    <li key={item._id} className="search-items" onClick={()=>chatWithUser(item._id)} >{item.name}</li>
+                                    <li key={item.id} className="search-items" onClick={()=>chatWithUser(item.id)} >{item.name}</li>
                             ))
                         ))
                              : ( rooms.map((item)=>{
@@ -325,10 +421,10 @@ function Chat(){
                                 
                             };
 
-                            return <li key={item.roomId} className={item.roomId === room? 'current-chat' : 'normal-chat'} onClick={()=>chatWithUser(item.otherUser.userId._id)}>
+                            return <li key={item.roomId} className={item.roomId === room? 'current-chat' : 'normal-chat'} onClick={()=>chatWithUser(item.otherUser.id)}>
                                     <div className="friend-name">
-                                        <span>{item.otherUser.userId.name}</span>
-                                        {item.user.unreadCount !== 0 ? (<span className="unread-count">{item.user.unreadCount}</span>) : (<span></span>)}
+                                        <span>{item.otherUser.name}</span>
+                                        {item.myUnreadCount !== 0 ? (<span className="unread-count">{item.myUnreadCount}</span>) : (<span></span>)}
                                     </div>
                                     <div style={{ fontSize: '14px', whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display:"flex", justifyContent: "space-between", paddingRight: "10px" }}>
                                         <span style={{
@@ -337,8 +433,8 @@ function Chat(){
                                             whiteSpace: "nowrap",
                                             textOverflow: "ellipsis",
                                             minWidth: 0   // IMPORTANT: allows shrinking
-                                        }}>{item.lastMessage?.text}</span>
-                                        <span style={{ color: item.user.unreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
+                                        }}>{item.lastMessage.sender === user?.id ? "You: " : ""}{item.lastMessage?.text}</span>
+                                        <span style={{ color: item.myUnreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
                                     </div>
                                 </li>
 }))}
@@ -353,7 +449,7 @@ function Chat(){
                             <div className="chat-messages">
                                 <ul className="chats">
                                     {messages.map((item, index)=>{
-                                        const isMe = (typeof item.sender === "object" ? item.sender._id : item.sender) === user._id;
+                                        const isMe = item.sender._id?.toString() === user.id.toString();
                                         const time = () => {
                                             const date = new Date(item.createdAt);
                                             return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -385,41 +481,22 @@ function Chat(){
                                                     <div className="message-container">
                                                         <li
                                                             key={index}
-                                                            className={`chat-bubble ${isMe ? "my-text" : "friend-text"} ${activeMessageId === item._id ? 'active' : 'not-active'}`}
+                                                            className={`chat-bubble ${isMe ? "my-text" : "friend-text"} ${activeMessageId === item.id ? 'active' : 'not-active'}`}
                                                             onMouseOver={()=>{
-                                                                setActiveMessageId(item._id)
+                                                                setActiveMessageId(item.id)
                                                             }}
                                                             onMouseLeave={()=>setActiveMessageId(null)}
                                                         >
                                                             {item.text}
                                                         </li>
                                                         <span>{time()}</span>
+                                                        {isMe && <p>{getMessageStatus(item, isMe)}</p>}
                                                     </div>
-
                                                 </div>
                                             );
                                     })}
                                     <div ref={messagesEndRef} />
                                 </ul>
-                                {lastBySender && (
-                                    <div style={{ display: 'flex'}}>
-                                        {(()=>{
-                                            const currentRoomDoc = rooms.find(r => r.roomId === room);
-                                            console.log(lastBySender);
-                                            
-                                            if(!currentRoomDoc){
-                                                console.log("no current room doc");
-                                                return null;
-                                            }
-                                            console.log("current room is" + currentRoomDoc.roomId);
-                                            if(currentRoomDoc.otherUser.lastReadMessageId?.toString() >= messages[messages.length -1]._id.toString()){
-                                                console.log("seen")
-                                                return <span style={{fontSize: '12px', color: 'gray', fontStyle: 'italic', marginLeft: 'auto' }}>Seen</span>;
-                                            }
-                                            else return <span style={{ fontSize: '12px', color: 'gray', fontStyle: 'italic', marginLeft: 'auto'}}>delivered</span>;
-                                        })()}
-                                    </div>
-                                )}
                                 {senderTyping && (
                                     <div className="typing-indicator">
                                         <span></span>

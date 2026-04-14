@@ -1,38 +1,30 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { storage } from "../utils/storage";
 
 const GoogleRedirectHandler = () => {
-    const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-    useEffect(()=>{
-        const token = new URLSearchParams(window.location.search).get('token');
-        console.log("token is-> " + token);
-        if (token) {
-        try {
-            /* Optionally verify basic structure of token
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            if (payload?.id)*/
-            storage.setItem('token', token);
-            console.log('token:', token);
-            setTimeout(() => navigate("/chat"), 100);
-        } catch (err) {
-            console.error("Error decoding token:", err);
-            alert("Something went wrong.");
-            navigate("/");
-        }
-        } else {
-        alert("No token found in URL.");
-        navigate("/");
-        }
+  useEffect(() => {
+    const token = searchParams.get("token");
 
-        setLoading(false);
-    }, []);
+    if (!token) {
+      console.error("No token found");
+      navigate("/");
+      return;
+    }
 
-    return (
-        <p>Logging you in...</p>
-    );
-}
+    try {
+      storage.setItem("token", token);
+      navigate("/chat");
+    } catch (err) {
+      console.error("Error handling token:", err);
+      navigate("/");
+    }
+  }, [navigate, searchParams]);
+
+  return <p>Logging you in...</p>;
+};
 
 export default GoogleRedirectHandler;

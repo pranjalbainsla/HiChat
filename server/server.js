@@ -1,14 +1,10 @@
 const express = require('express')
 const mongoose = require('mongoose')
-//cors is cross origin resource sharing, here you can decide whivh domains are allowed to call your api endpoints, so like maybe only your frontend domain
 const cors = require('cors')
 require('dotenv').config()
 const http = require('http')
-/*A **module** is a single file or small unit of code you import (built-in or custom).
-A **library** is a collection of many modules packaged together to provide bigger features.
-Example: `http` is a module; Express is a library made of many modules.
-so here you're just loading that module http
-*/
+const User = require('./models/user.js')
+const decodeToken = require('./utils/decodeToken.js')
 
 const { Server } = require('socket.io')
 const Message = require('./models/message.js')
@@ -16,171 +12,132 @@ const Room = require('./models/room.js')
 require('./utils/passportConfig.js')
 
 const app = express()
-const server = http.createServer(app)
+const server = http.createServer(app) // this is you just creating a server instance (only http requests accepted till this point)
 
 const io = new Server(server, {
     cors: {
         origin: process.env.CLIENT_URL,
         methods: ['GET', 'POST']
     }
-})
+}) //now the same server handles http requests via express AND websocket connections via socket.io
 
 app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 app.use(express.json());
 
-//attaching a user to our socket (so later, we can just access the user by socket.user)
-const User = require('./models/user.js')
-const decodeToken = require('./utils/decodeToken.js')
+
 io.use(async (socket, next) => {
-  const token = socket.handshake.auth?.token;
+  const token = socket.handshake.auth.token;
+
+   if (!token) {
+    return next(new Error("Unauthorized"));
+  }
 
   try {
     const decoded = decodeToken(token);
-    const user = await User.findById(decoded.id)
-
+    /* const user = await User.findById(decoded.id) // DB hit on every connection -> can become slow at scale 
     if(!user){
-        socket.emit("auth-error", "user not found");
-        return next(new Error("user not found"));
-    }
-
-    socket.user = user; // attach user info to socket
-    next();
+        return next(new Error("User not found"));
+    } */
+    socket.user = {
+        id: decoded.id,
+        name: decoded.name
+    };
+    return next();
   } catch (err) {
-    console.error("Socket auth error:", err.message, "#2");
-    socket.emit("auth-error", "authentication failed");
-    next(new Error("Authentication failed"));
+    return next(new Error("Authentication failed"));
   }
 });
 
-//map to store active rooms
-const activeRooms = new Map();
+
 
 io.on('connection', (socket)=>{
     console.log("New client:" , socket.user.name);
-    socket.join(socket.user._id.toString());
-    console.log(`${socket.user.name} has joined room, userId: ${socket.user._id.toString()}`)
-
-    //sending user info to the frontend as soon as we connect (this is the entire user object)
+    socket.join(socket.user.id.toString()); // puts the user's connection into a private room named after his id, so if you wanna to send
+    //messages to this user, send to this room
+    console.log(`${socket.user.name} has joined room, userId: ${socket.user.id.toString()}`)
+ 
+  
     socket.emit('sendUser', socket.user);
 
-    socket.on("join_room", async (room)=>{
-        activeRooms.set(socket.user._id.toString(), room); //mapping the current user with the active room (id)
-        console.log(`mapping ${socket.user._id} with room id ${room}`);
+    socket.on("join_room", async (room)=>{     
         socket.join(room)
-        console.log(`${socket.user.name} joined the room: ${room}`)
-
-        //when a user joins a room, set his/her lastReadMessage as the latest message in the room and update the unread count to 0
-        const latestMessage = await Message.findOne({ room }).sort({ createdAt: -1 });
-        await Room.updateOne(
-            { _id: room, "members.userId": socket.user._id},
-            { $set: { "members.$.lastReadMessageId": latestMessage?._id, "members.$.unreadCount": 0 } }
-        )
-        // Emit to ONLY this user that their unreadCount is now 0
-        io.to(socket.user._id.toString()).emit("room_updated", {
-            roomId: room,
-            unreadCount: 0,
-            lastMessage: latestMessage || null
-        });
-        
+        console.log(`${socket.user.name} joined the room: ${room}`) 
     })
 
     socket.on('send_message', async (data)=>{
-        const newMessage = new Message({
-            room: data.room, // we get the roomid
-            sender: data.sender, //saving sender by _id (as per the user model)
-            text: data.text
-        })
+        const roomId = data.room;
+        console.log(roomId);
+        const tempId = data.id;
+        
         try{
-            const savedMessage = await newMessage.save()
-
-            const rr = await Room.findOne({ _id: data.room});
-            if(!rr){
-                console.log("room not found");
-                return;
-            }
-            const receiver = rr.members.find(member => member.userId.toString() !== data.sender.toString()); // stores the receiver obj
-            if(!receiver){
-                console.log("receiver not found");
-                return;
-            }
+            const savedMessage = await Message.create({
+                room: roomId, // we get the roomid
+                sender: data.sender._id, //saving sender by _id (as per the user model)
+                text: data.text
+            })
+            //update room's lastMessage field to the id of this message
             await Room.updateOne(
-                { _id: data.room, "members.userId": receiver},
-                { $set: { "members.$.lastDeliveredMessageId": savedMessage._id }}
+                { roomId: roomId },
+                { $set: { lastMessage: savedMessage._id}}
             );
+            const populated = await savedMessage.populate('sender', '_id name');
+            const room = await Room.findOne({ roomId }).populate("members", "userId").lean();
 
-            let updatedUnreadCount = 0;
-            //console.log(`receiver ${receiver} and roomid ${data.room}`);
-
-            if(activeRooms.get(receiver.userId.toString()) === data.room){
-                console.log("receiver is active")
-                await Room.updateOne(
-                    { _id: data.room, "members.userId": receiver.userId},
-                    { $set : { "members.$.lastReadMessageId": savedMessage._id, "members.$.unreadCount": 0 }}
-                );
-            }else{
-                console.log("receiver offline")
-                const result = await Room.findOneAndUpdate(
-                    { _id: data.room, "members.userId": receiver.userId },
-                    { $inc: { "members.$.unreadCount": 1 }},
-                    { new: true}
-                );
-                if (!result) {
-                    console.log("No matching room/member found for unread update");
-                    return;
+            room.members.forEach(m => {
+                if(m.userId.toString() !== socket.user.id.toString()){
+                    io.to(m.userId.toString()).emit("receive_message", {
+                        ...populated.toObject(),
+                        tempId
+                    });
                 }
-                updatedUnreadCount = result.members.find(
-                    m => m.userId.toString() === receiver.userId.toString()
-                ).unreadCount;
-
-            }
-            io.to(data.room).emit("receive_message", savedMessage); //sends it to everyone in the room
-
-
-            io.to(receiver.userId.toString()).emit("room_updated", {
-                roomId: data.room,
-                unreadCount: updatedUnreadCount,
-                lastMessage: savedMessage
+            })
+            io.to(socket.user.id.toString()).emit("receive_message", {
+                ...populated.toObject(),
+                tempId
             });
-            console.log(
-                "Message from", socket.user.name, 
-                "to room", data.room, 
-                "Unread for receiver:", updatedUnreadCount
-            );
-                
             
         }catch(err){
             console.log("error:", err.message)
         }
-        /// optionally send to sender as well
-	    /*socket.emit("receive_message", savedMessage);*/
+    })
+    socket.on("delivered", async ({ msgId, userId })=>{
+        await Message.updateOne(
+            { _id: msgId },
+            { $addToSet: { deliveredTo: userId } }
+        )
+        // Emit update to notify others in the room
+        const message = await Message.findById(msgId);
+  
+        io.to(message.room).emit("message_delivered", { msgId, userId});
+    })
+    socket.on("read", async({ userId, lastMessageId, roomId })=>{
+        await Message.updateMany(
+            { 
+                room: roomId,
+                sender: { $ne: userId },
+                _id : { $lte : lastMessageId }},
+            { $addToSet: { readBy: userId }}
+        )
+        //update the room to contain the lastReadMessageid of user with id: userId as this msg
+        await Room.updateOne(
+            { roomId: roomId, "members.userId": userId },
+            { $set: { "members.$.lastReadMessageId": lastMessageId } }
+        );
+        // Emit update to notify others in the room
+        io.to(roomId).emit("messages_read", { lastMessageId, userId, roomId });
     })
     socket.on('user-typing', (room)=>{
         socket.to(room).emit('sender-typing', room);
     })
-    socket.on("message_seen", async ({ roomId, userId, lastSeenMessageId }) => {
-        // Update DB: set lastReadMessageId for this user in this room
-        await Room.updateOne(
-            { _id: roomId, "memberss.userId": userId },
-            { $set: { "members.$.lastReadMessageId": lastSeenMessageId } }
-        );
-
-        // Notify the sender in real time
-        io.to(roomId).emit("message_seen_update", {
-            roomId,
-            userId,
-            lastSeenMessageId,
-        });
-    });
-
 
     socket.on('disconnect', ()=>{
-        activeRooms.delete(socket.user._id);
         console.log(`client with name: ${socket.user.name} disconnected`)
     })
+
 })
 
 
-//Connecting to databaseur
+//Connecting to database
 mongoose.connect(process.env.LOCAL_MONGO_DB) //
 const db = mongoose.connection 
 db.on('error', (err)=>console.error(err))
@@ -201,6 +158,7 @@ const authRouter = require('./routes/auth.js')
 app.use('/api/auth', authRouter)
 
 const chatRouter = require('./routes/chat.js')
+const { SocketAddress } = require('net')
 app.use('/api/chat', chatRouter)
 
 const PORT = 3000;

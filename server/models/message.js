@@ -2,8 +2,7 @@ const mongoose = require('mongoose')
 
 const messageSchema = new mongoose.Schema({
     room :{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Room',
+        type: String,
         require: true
     },
     sender :{
@@ -15,6 +14,14 @@ const messageSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-}, { timestamps: true });
+    deliveredTo: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    readBy: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }]
+}, { timestamps: true }).index({ "room": 1 });
 
 module.exports = mongoose.model('Message', messageSchema)
