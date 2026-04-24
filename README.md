@@ -1,4 +1,4 @@
-# Real-Time Messaging Platform
+# HiChat - Real-Time Messaging Platform
 
 A horizontally scalable WebSocket messaging system capable of handling 300 concurrent connections with **99.8% message delivery** at p95 119ms.
 
