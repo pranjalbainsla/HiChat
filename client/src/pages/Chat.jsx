@@ -168,7 +168,7 @@ const handleReceiveMessage = (msg) => {
 
         const updatedRoom = {
             roomId: msg.room,
-            myUnreadCount: (!isSender && !isCurrentRoom )? exists.myUnreadCount+1 : exists.myUnreadCount,
+            myUnreadCount: !exists? 1: (!isSender && !isCurrentRoom)? exists.myUnreadCount+1 : exists.myUnreadCount,
             lastMessage: {
                 _id: msg._id,
                 text: msg.text,
@@ -433,7 +433,7 @@ const handleReceiveMessage = (msg) => {
                                             whiteSpace: "nowrap",
                                             textOverflow: "ellipsis",
                                             minWidth: 0   // IMPORTANT: allows shrinking
-                                        }}>{item.lastMessage.sender === user?.id ? "You: " : ""}{item.lastMessage?.text}</span>
+                                        }}>{item.lastMessage?.sender === user?.id ? "You: " : ""}{item.lastMessage?.text}</span>
                                         <span style={{ color: item.myUnreadCount === 0 ? 'white' : 'green'}}>{time()}</span>
                                     </div>
                                 </li>

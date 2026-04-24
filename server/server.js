@@ -3,15 +3,20 @@ const mongoose = require('mongoose')
 const cors = require('cors')
 require('dotenv').config()
 const http = require('http')
-const User = require('./models/user.js')
-const decodeToken = require('./utils/decodeToken.js')
+const { createAdapter } = require('@socket.io/redis-adapter')
+const Redis = require('ioredis')
 
-const { Server } = require('socket.io')
+const { metricsHandler, activeConnections, messagesTotal, fullLatency, dbLatency } = require('./metrics');
+
 const Message = require('./models/message.js')
 const Room = require('./models/room.js')
+const decodeToken = require('./utils/decodeToken.js')
+const { Server } = require('socket.io')
 require('./utils/passportConfig.js')
 
 const app = express()
+app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+app.use(express.json());
 const server = http.createServer(app) // this is you just creating a server instance (only http requests accepted till this point)
 
 const io = new Server(server, {
@@ -20,13 +25,17 @@ const io = new Server(server, {
         methods: ['GET', 'POST']
     }
 }) //now the same server handles http requests via express AND websocket connections via socket.io
+const pubClient = new Redis(process.env.REDIS_URL);
+const subClient = pubClient.duplicate();
 
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
-app.use(express.json());
+io.adapter(createAdapter(pubClient, subClient));
+app.get('/metrics', metricsHandler);
 
-
+io.engine.on("connection", (raw) => {
+  console.log("engine connected");
+});
 io.use(async (socket, next) => {
-  const token = socket.handshake.auth.token;
+  const token = socket.handshake.auth.token || socket.handshake.query.token;
 
    if (!token) {
     return next(new Error("Unauthorized"));
@@ -42,8 +51,10 @@ io.use(async (socket, next) => {
         id: decoded.id,
         name: decoded.name
     };
+    console.log("user is:", socket.user.name);
     return next();
   } catch (err) {
+    console.log('token expired');
     return next(new Error("Authentication failed"));
   }
 });
@@ -51,7 +62,9 @@ io.use(async (socket, next) => {
 
 
 io.on('connection', (socket)=>{
-    console.log("New client:" , socket.user.name);
+    console.log(`New connection on worker ${process.pid}`);
+    activeConnections.inc();
+
     socket.join(socket.user.id.toString()); // puts the user's connection into a private room named after his id, so if you wanna to send
     //messages to this user, send to this room
     console.log(`${socket.user.name} has joined room, userId: ${socket.user.id.toString()}`)
@@ -64,42 +77,58 @@ io.on('connection', (socket)=>{
         console.log(`${socket.user.name} joined the room: ${room}`) 
     })
 
-    socket.on('send_message', async (data)=>{
-        const roomId = data.room;
-        console.log(roomId);
+    socket.on('send_message', async (data) => {
+        const [user1, user2] = data.room.split("_");
         const tempId = data.id;
-        
-        try{
-            const savedMessage = await Message.create({
-                room: roomId, // we get the roomid
-                sender: data.sender._id, //saving sender by _id (as per the user model)
-                text: data.text
-            })
-            //update room's lastMessage field to the id of this message
-            await Room.updateOne(
-                { roomId: roomId },
-                { $set: { lastMessage: savedMessage._id}}
-            );
-            const populated = await savedMessage.populate('sender', '_id name');
-            const room = await Room.findOne({ roomId }).populate("members", "userId").lean();
+        const emitStart = Date.now();
+        // generate real _id BEFORE saving
+        const newId = new mongoose.Types.ObjectId();
 
-            room.members.forEach(m => {
-                if(m.userId.toString() !== socket.user.id.toString()){
-                    io.to(m.userId.toString()).emit("receive_message", {
-                        ...populated.toObject(),
-                        tempId
-                    });
-                }
-            })
-            io.to(socket.user.id.toString()).emit("receive_message", {
-                ...populated.toObject(),
-                tempId
-            });
+        // emit immediately with the real _id
+        const messageToEmit = {
+            _id: newId,        // real ID, frontend can use this straight away
+            room: data.room,
+            sender: data.sender,
+            text: data.text,
+            createdAt: Date.now(),
+            tempId,
+        };
+
+        io.to(user1).emit('receive_message', messageToEmit);
+        io.to(user2).emit('receive_message', messageToEmit);
+        const emitTime = Date.now() - emitStart;
+
+        const dbStart = Date.now();
+
+        Message.create({
+            _id: newId,
+            room: data.room,
+            sender: data.sender._id,
+            text: data.text,
+        }).then(saved => {
+            const dbTime = Date.now() - dbStart; // ✅ write is done, measure here
             
-        }catch(err){
-            console.log("error:", err.message)
+            if (dbTime > 100) {
+                console.log(`SLOW db write: ${dbTime}ms`);
+            }
+
+            Room.updateOne(
+                { roomId: data.room },
+                { $set: { lastMessage: saved._id } },
+                { upsert: true }
+            );
+        }).catch(err => {
+            const dbTime = Date.now() - dbStart; // how long before it failed
+            console.error(`DB write failed after ${dbTime}ms:`, err.message);
+            messagesTotal.inc({ status: 'failed' });
+        });
+
+        if (emitTime > 100) {
+            console.log(`SLOW: emit=${emitTime}ms`);
         }
-    })
+
+        messagesTotal.inc({ status: 'success' });
+    });
     socket.on("delivered", async ({ msgId, userId })=>{
         await Message.updateOne(
             { _id: msgId },
@@ -129,16 +158,22 @@ io.on('connection', (socket)=>{
     socket.on('user-typing', (room)=>{
         socket.to(room).emit('sender-typing', room);
     })
+    socket.on('error', (err) => {
+        console.log(`socket error: ${socket.user?.id} message: ${err.message}`);
+    });
+    socket.on('disconnect', (reason) => {
+        console.log(`disconnect: ${socket.user?.id} reason: ${reason}`);
+    });
 
-    socket.on('disconnect', ()=>{
-        console.log(`client with name: ${socket.user.name} disconnected`)
-    })
+    
 
 })
 
 
 //Connecting to database
-mongoose.connect(process.env.LOCAL_MONGO_DB) //
+mongoose.connect(process.env.DATABASE_URL, {
+  maxPoolSize: 100,
+});
 const db = mongoose.connection 
 db.on('error', (err)=>console.error(err))
 db.once('open', ()=>console.log("Connected to MongoDB Atlas")) //rn its local db only
@@ -158,8 +193,9 @@ const authRouter = require('./routes/auth.js')
 app.use('/api/auth', authRouter)
 
 const chatRouter = require('./routes/chat.js')
-const { SocketAddress } = require('net')
 app.use('/api/chat', chatRouter)
+app.get("/", (req, res) => {
+  res.send("Server is running 🚀");
+});
 
-const PORT = 3000;
-server.listen(PORT, ()=> console.log(`server listening at ${PORT}`));
+server.listen(process.env.PORT, ()=> console.log(`server listening at ${process.env.PORT}`));

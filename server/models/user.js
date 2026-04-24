@@ -11,8 +11,7 @@ const userSchema = new mongoose.Schema({
         unique: true
     },
     googleId: {
-        type: String,
-        required: true
+        type: String
     }
 }).index({ name: 1})
 

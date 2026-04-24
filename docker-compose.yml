@@ -1,30 +1,61 @@
-version: '3.8'
 
 services:
   redis:
+    mem_limit: 128m
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app1:
-    build: .
+    mem_limit: 256m
+    build: ./server
     environment:
-      - PORT=3001
+      - PORT=3000
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${LOCAL_MONGO_DB}
+      - DATABASE_URL=mongodb://mongodb:27017/mydatabase
     depends_on:
       - redis
+      - mongodb
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app2:
-    build: .
+    mem_limit: 256m
+    build: ./server
     environment:
-      - PORT=3002
+      - PORT=3000
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${LOCAL_MONGO_DB}
+      - DATABASE_URL=mongodb://mongodb:27017/mydatabase
     depends_on:
       - redis
+      - mongodb
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
 
   nginx:
+    mem_limit: 64m
     image: nginx:alpine
     ports:
       - "80:80"
@@ -33,3 +64,56 @@ services:
     depends_on:
       - app1
       - app2
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mongodb:
+    mem_limit: 1g
+    image: mongo:6
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    command: --wiredTigerCacheSizeGB 0.7
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  prometheus:
+    mem_limit: 256m
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    mem_limit: 128m
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin456
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+volumes:
+  mongo_data:
